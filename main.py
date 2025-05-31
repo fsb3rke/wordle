@@ -3,98 +3,123 @@
     DATE:   5/31/25
 """
 
-"""
-    THIS IS SPLITTED FOR TODO SECTION
 
-    TODO: (0) write a better version of "upper" function 'cuz there's no way to upper i->İ it's rewrites like i->I.
-    TODO: (1) colored text for hints. GREEN means true position of char. YELLOW means wrong position but word contains in the char which is given. NON-COLORED means wrong char, it's not in the word.
-    TODO: (debug) if line marked with this todo, it means it'll be removed when it's finished.
-"""
-
+from textual.app import App, ComposeResult
+from textual.widgets import Static, Input
+from textual.containers import Vertical
+from textual.reactive import reactive
+from textual.message import Message
+from rich.panel import Panel
+from rich.text import Text
 from random import choice
 
+FILE_NAME = "Allfivecharwords.txt"
 
-FILE_NAME: str = "Allfivecharwords.txt"
+def get_word_list(fname: str) -> list[str]:
+    with open(fname, "r", encoding="utf-8") as f:
+        return [line.strip().upper() for line in f if len(line.strip()) == 5]
 
-"""
-Fetchs word data for create a list.
-"""
-def get_word_list(fname: str) -> list:
-    return open(fname, 'r').read().splitlines()
+class GuessSubmitted(Message):
+    def __init__(self, guess: str) -> None:
+        self.guess = guess.upper()
+        super().__init__()
 
-class Wordle:
-    def __init__(self, fname: str) -> None:
-        self.fname: str = fname
-        self.__word_list: list = get_word_list(self.fname)
-        self.__guessed_words: list = []
-        self.__wordle_word: str = ""
+class WordleGame:
+    def __init__(self, word_list: list[str]) -> None:
+        self.word_list = word_list
+        self.reset()
 
-    """
-    Resets all of guessed words and selected wordle word.
-    """
-    def reset(self) -> None:
-        self.__guessed_words = []
-        self.__wordle_word = ""
+    def reset(self):
+        self.word = choice(self.word_list).upper()
+        self.guessed = []
 
-    """
-    Sets a wordle word.
-    """
-    def set_wordle_word(self) -> None:
-        self.__wordle_word = choice(self.__word_list)
-        print(self.__wordle_word) # TOOD: (debug)
+    def is_valid_guess(self, word: str) -> bool:
+        word = word.upper()
+        return word in self.word_list and len(word) == 5 and word not in self.guessed
 
-    """
-    Checks if word equals wordle word.
-    """
-    def check_if_word_equals_wordle_word(self, word: str) -> bool:
-        return self.__wordle_word == word.upper() # TODO: (0)
+    def submit_guess(self, word: str) -> bool:
+        word = word.upper()
+        if self.is_valid_guess(word):
+            self.guessed.append(word)
+            return True
+        return False
 
-    def guess(self, word: str) -> bool:
-        statement: bool =   word.upper() in self.__word_list and len(word) == 5 and word.upper() not  in self.__guessed_words # TODO: (0)
-        if statement:
-            self.__guessed_words.append(word.upper()) # TODO: (0)
+    def is_correct(self, word: str) -> bool:
+        return word.upper() == self.word
 
-        return statement
+    def get_colored_guess(self, word: str) -> Text:
+        result = Text()
+        target = list(self.word)
+        used = [False] * 5
 
-    def get_guessed_words_with_table(self) -> str:
-        table_rows: list = []
-        for i in range(len(self.__guessed_words)):
-            temp_row: list = []
-            for j in range(len(self.__guessed_words[i])):
-                temp_row.append(f"|{self.__guessed_words[i][j]}|") # TODO: (1)
+        for i, c in enumerate(word):
+            if c == target[i]:
+                result.append(c, style="bold white on green")
+                used[i] = True
+            else:
+                result.append("_", style="")
 
-            table_rows.append(temp_row)
+        for i, c in enumerate(word):
+            if result[i] != "_":
+                continue
+            if c in target:
+                idx = target.index(c)
+                if not used[idx]:
+                    result[i] = Text(c, style="bold black on yellow")
+                    used[idx] = True
+                else:
+                    result[i] = Text(c, style="bold white on grey23")
+            else:
+                result[i] = Text(c, style="bold white on grey23")
+        return result
 
-        # This is for empty rows
-        for j in range(5-len(table_rows)):
-            temp_s_row: list = []
-            for a in range(5):
-                temp_s_row.append("| |")
+class WordleView(Static):
+    def __init__(self, game: WordleGame):
+        super().__init__()
+        self.game = game
 
-            table_rows.append(temp_s_row)
+    def render(self) -> Panel:
+        lines = []
+        for guess in self.game.guessed:
+            lines.append(self.game.get_colored_guess(guess))
+        for _ in range(5 - len(lines)):
+            lines.append(Text("     ", style="dim"))
 
-        table: str = ""
-        for i in range(len(table_rows)):
-            table += " ".join(table_rows[i]) + ("\n" if (i+1) < len(table_rows) else "")
-            
-        return table
+        return Panel(Text("\n").join(lines), title="WORDLE")
 
-game: Wordle = Wordle(FILE_NAME)
-game.set_wordle_word()
+class WordleApp(App):
+    BINDINGS = [("q", "quit", "Quit")]
 
-i: int = 0
-while i != 5:
-    print(game.get_guessed_words_with_table())
-    print()
+    def __init__(self):
+        super().__init__()
+        self.word_list = get_word_list(FILE_NAME)
+        self.game = WordleGame(self.word_list)
 
-    word: str = str(input("Guess word: "))
-    if not game.guess(word):
-        i -= 1
-    
-    if game.check_if_word_equals_wordle_word(word):
-        print("BROO YOU FOND IT!!")
-        break
+    def compose(self) -> ComposeResult:
+        yield Vertical(
+            WordleView(self.game),
+            Input(placeholder="Guess a 5-letter word...", id="word-input")
+        )
 
-    i += 1
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
+        guess = event.value.strip().upper()
+        input_widget = self.query_one("#word-input", Input)
 
-print(game.get_guessed_words_with_table())
+        if not self.game.is_valid_guess(guess):
+            input_widget.placeholder = "Invalid guess. Try again!"
+            input_widget.value = ""
+            return
+
+        self.game.submit_guess(guess)
+        self.query_one(WordleView).refresh()
+        input_widget.value = ""
+
+        if self.game.is_correct(guess):
+            input_widget.placeholder = "Correct! Press Q to quit."
+            input_widget.disabled = True
+        elif len(self.game.guessed) >= 5:
+            input_widget.placeholder = f"Out of tries! Word was {self.game.word}"
+            input_widget.disabled = True
+
+if __name__ == "__main__":
+    WordleApp().run()
