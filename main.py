@@ -57,7 +57,7 @@ class WordleGame:
                 result.append(c, style="bold white on green")
                 used[i] = True
             else:
-                result.append("_", style="")
+                result.append(c, style="bold white")
 
         for i, c in enumerate(word):
             if result[i] != "_":
